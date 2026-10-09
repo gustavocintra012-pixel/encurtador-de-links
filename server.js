@@ -1,5 +1,7 @@
 const crypto = require('crypto');
 const express = require('express');
+const helmet = require('helmet');
+const { rateLimit } = require('express-rate-limit');
 const db = require('./db');
 const { generateCode } = require('./code');
 const { validateUrl } = require('./validate');
@@ -7,8 +9,31 @@ const { validateUrl } = require('./validate');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Cabeçalhos de segurança (e remove o "X-Powered-By: Express")
+app.use(helmet());
+
 // Limita o tamanho do corpo das requisições (defesa contra envios gigantes)
 app.use(express.json({ limit: '10kb' }));
+
+// Limite geral para a API: 100 requisições por 15 minutos por visitante
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Muitas requisições. Tente novamente em alguns minutos.' },
+});
+
+// Limite mais rígido para criar links: 20 por 15 minutos por visitante
+const createLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Você criou links demais. Tente novamente em alguns minutos.' },
+});
+
+app.use('/api', apiLimiter);
 
 const insertLink = db.prepare(
   'INSERT INTO links (code, url, token_hash) VALUES (?, ?, ?)'
@@ -27,7 +52,7 @@ app.get('/', (req, res) => {
   res.send('Encurtador de links no ar');
 });
 
-app.post('/api/links', (req, res) => {
+app.post('/api/links', createLimiter, (req, res) => {
   const url = validateUrl(req.body && req.body.url);
   if (!url) {
     return res.status(400).json({
