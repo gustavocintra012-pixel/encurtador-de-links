@@ -15,6 +15,9 @@ const insertLink = db.prepare(
 );
 const findLink = db.prepare('SELECT url FROM links WHERE code = ?');
 const addClick = db.prepare('UPDATE links SET clicks = clicks + 1 WHERE code = ?');
+const findStats = db.prepare(
+  'SELECT url, clicks, created_at, token_hash FROM links WHERE code = ?'
+);
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -51,6 +54,32 @@ app.post('/api/links', (req, res) => {
   }
 
   res.status(500).json({ error: 'Não foi possível gerar um código. Tente novamente.' });
+});
+
+app.get('/api/links/:code/stats', (req, res) => {
+  const auth = req.get('Authorization') || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  if (!token) {
+    return res.status(401).json({
+      error: 'Token ausente. Envie no cabeçalho Authorization: Bearer <token>',
+    });
+  }
+
+  const { code } = req.params;
+  const link = /^[A-Za-z0-9]{6}$/.test(code) ? findStats.get(code) : undefined;
+
+  // Compara os hashes em tempo constante e responde igual para "não existe" e "token errado"
+  const received = Buffer.from(hashToken(token), 'hex');
+  if (!link || !crypto.timingSafeEqual(received, Buffer.from(link.token_hash, 'hex'))) {
+    return res.status(404).json({ error: 'Link não encontrado' });
+  }
+
+  res.json({
+    code,
+    url: link.url,
+    clicks: link.clicks,
+    createdAt: link.created_at,
+  });
 });
 
 app.get('/:code', (req, res) => {
