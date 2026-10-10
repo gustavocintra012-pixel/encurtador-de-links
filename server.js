@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const path = require('path');
 const express = require('express');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
@@ -10,10 +11,22 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Cabeçalhos de segurança (e remove o "X-Powered-By: Express")
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        'upgrade-insecure-requests': process.env.NODE_ENV === 'production' ? [] : null,
+      },
+    },
+  })
+);
 
 // Limita o tamanho do corpo das requisições (defesa contra envios gigantes)
 app.use(express.json({ limit: '10kb' }));
+
+// Entrega a página (pasta "public") na rota inicial
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Limite geral para a API: 100 requisições por 15 minutos por visitante
 const apiLimiter = rateLimit({
@@ -47,10 +60,6 @@ const findStats = db.prepare(
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
-
-app.get('/', (req, res) => {
-  res.send('Encurtador de links no ar');
-});
 
 app.post('/api/links', createLimiter, (req, res) => {
   const url = validateUrl(req.body && req.body.url);
